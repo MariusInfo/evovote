@@ -50,27 +50,32 @@ public class VoteCommands {
                 .requires(source -> source.hasPermission(2))
                 .then(Commands.argument("player", StringArgumentType.string())
                         .executes(context -> {
-                            String playerName = StringArgumentType.getString(context, "player");
+                            String playerName = StringArgumentType.getString(context, "player").trim();
+                            if (!playerName.matches("^[A-Za-z0-9_]{1,16}$")) {
+                                context.getSource().sendFailure(Component.literal("§cInvalid username format."));
+                                return 0;
+                            }
                             String keyName = VoteConfig.VOTE_KEY_NAME.get();
                             int keyAmount = VoteConfig.VOTE_KEY_AMOUNT.get();
                             boolean broadcast = VoteConfig.BROADCAST_VOTES.get();
+                            var server = context.getSource().getServer();
 
-                            context.getSource().getServer().getProfileCache().get(playerName).ifPresentOrElse(profile -> {
+                            server.getProfileCache().get(playerName).ifPresentOrElse(profile -> {
                                 UUID uuid = profile.getId();
 
-                                CompletableFuture.runAsync(() -> CrateKeyManager.get().addKeys(playerName, keyName, keyAmount));
+                                CompletableFuture.runAsync(() -> CrateKeyManager.get().addKeys(profile.getName(), keyName, keyAmount));
 
                                 if (broadcast) {
-                                    String guiMessage = "§e" + playerName + " §fvoted and received §a" + keyAmount + "x " + keyName + " Key§f!";
+                                    String guiMessage = "§e" + profile.getName() + " §fvoted and received §a" + keyAmount + "x " + keyName + " Key§f!";
                                     Component chatMessage = Component.literal("§8[§a§lVOTE§8] " + guiMessage + " Type §e/vote §ffor the link.");
 
-                                    for (ServerPlayer player : context.getSource().getServer().getPlayerList().getPlayers()) {
+                                    for (ServerPlayer player : server.getPlayerList().getPlayers()) {
                                         player.sendSystemMessage(chatMessage);
                                         PacketHandler.sendToPlayer(new PacketHandler.S2C_BroadcastNotification("§a§lVOTE: §f" + guiMessage), player);
                                     }
                                 }
 
-                                ServerPlayer onlinePlayer = context.getSource().getServer().getPlayerList().getPlayer(uuid);
+                                ServerPlayer onlinePlayer = server.getPlayerList().getPlayer(uuid);
                                 if (onlinePlayer != null) {
                                     onlinePlayer.sendSystemMessage(Component.literal("§a✔ Thank you for voting! " + keyAmount + "x " + keyName + " key(s) added to your account."));
                                 }

@@ -25,6 +25,9 @@ public class EvoVote {
 
     @SubscribeEvent
     public void onServerStarting(ServerStartingEvent event) {
+        if (event.getServer() != null && !event.getServer().isDedicatedServer()) {
+            return;
+        }
         org.evocraft.evovote.vote.EvoVotifier.start();
     }
 

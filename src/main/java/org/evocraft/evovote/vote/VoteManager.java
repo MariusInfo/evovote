@@ -29,6 +29,7 @@ public class VoteManager {
                 if (server != null && server.getPlayerCount() > 0) {
                     String voteUrl = VoteConfig.VOTE_URL.get();
                     String keyName = VoteConfig.VOTE_KEY_NAME.get();
+                    int keyAmount = VoteConfig.VOTE_KEY_AMOUNT.get();
 
                     Component link = Component.literal("§a§l[CLICK HERE TO VOTE]")
                             .withStyle(style -> style
@@ -37,7 +38,7 @@ public class VoteManager {
 
                     server.getPlayerList().broadcastSystemMessage(Component.literal("§8§m----------------------------------------"), false);
                     server.getPlayerList().broadcastSystemMessage(Component.literal("§e⭐ §lWANT TO SUPPORT THE SERVER AND EARN REWARDS? §e⭐"), false);
-                    server.getPlayerList().broadcastSystemMessage(Component.literal("§fVote daily and receive §a1x " + keyName + " Key§f!"), false);
+                    server.getPlayerList().broadcastSystemMessage(Component.literal("§fVote daily and receive §a" + keyAmount + "x " + keyName + " Key§f!"), false);
                     server.getPlayerList().broadcastSystemMessage(link, false);
                     server.getPlayerList().broadcastSystemMessage(Component.literal("§8§m----------------------------------------"), false);
                 }

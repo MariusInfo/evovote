@@ -8,55 +8,65 @@ import javax.crypto.Cipher;
 import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.security.*;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.util.Base64;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class EvoVotifier {
 
     private static final int PORT = 8192; // Rămâne pe 8192 cum ai setat în Pterodactyl!
     private static PrivateKey privateKey;
     private static ServerSocket serverSocket;
-    private static boolean isRunning = false;
+    private static ExecutorService workerPool;
+    private static volatile boolean isRunning = false;
 
-    public static void start() {
+    public static synchronized void start() {
         if (isRunning) return;
 
         try {
             loadOrGenerateKeys();
 
             serverSocket = new ServerSocket(PORT);
+            workerPool = Executors.newFixedThreadPool(4, r -> {
+                Thread t = new Thread(r, "EvoVotifier-Worker");
+                t.setDaemon(true);
+                return t;
+            });
             isRunning = true;
 
             System.out.println("[EvoVotifier] Vote system started on port " + PORT + "!");
 
-            // Thread-ul principal care doar ACCEPTĂ conexiuni
-            new Thread(() -> {
+            Thread acceptThread = new Thread(() -> {
                 while (isRunning) {
                     try {
                         Socket socket = serverSocket.accept();
                         socket.setSoTimeout(5000); // 5 secunde timeout pentru fiecare conexiune
 
-                        // ========================================================
-                        // FIX-UL AICI: Procesăm fiecare vot pe un Thread NOU!
-                        // Astfel, dacă un bot scanează portul, nu blochează voturile reale!
-                        // ========================================================
-                        new Thread(() -> {
-                            try {
-                                handleVoteConnection(socket);
-                            } catch (Exception e) {
-                                // Ignorăm erorile de tip "timeout" de la scannere de internet
-                            }
-                        }).start();
+                        ExecutorService pool = workerPool;
+                        if (pool != null && !pool.isShutdown()) {
+                            pool.execute(() -> {
+                                try {
+                                    handleVoteConnection(socket);
+                                } catch (Exception ignored) {
+                                }
+                            });
+                        } else {
+                            socket.close();
+                        }
 
                     } catch (Exception e) {
-                        if (isRunning && !serverSocket.isClosed()) {
+                        if (isRunning && serverSocket != null && !serverSocket.isClosed()) {
                             System.err.println("[EvoVotifier] Error while accepting connection: " + e.getMessage());
                         }
                     }
                 }
-            }, "EvoVotifier-Main-Thread").start();
+            }, "EvoVotifier-Main-Thread");
+            acceptThread.setDaemon(true);
+            acceptThread.start();
 
         } catch (Exception e) {
             System.err.println("[EvoVotifier] CRITICAL ERROR: Could not start vote system!");
@@ -64,7 +74,7 @@ public class EvoVotifier {
         }
     }
 
-    public static void stop() {
+    public static synchronized void stop() {
         isRunning = false;
         try {
             if (serverSocket != null && !serverSocket.isClosed()) {
@@ -72,12 +82,18 @@ public class EvoVotifier {
             }
         } catch (IOException e) {
             e.printStackTrace();
+        } finally {
+            serverSocket = null;
+        }
+        if (workerPool != null) {
+            workerPool.shutdownNow();
+            workerPool = null;
         }
     }
 
     private static void handleVoteConnection(Socket socket) throws Exception {
-        try {
-            BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(socket.getOutputStream()));
+        try (socket) {
+            BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(socket.getOutputStream(), StandardCharsets.UTF_8));
             writer.write("VOTIFIER 1.9\n");
             writer.flush();
 
@@ -91,13 +107,17 @@ public class EvoVotifier {
             }
 
             if (read == 256) {
-                Cipher cipher = Cipher.getInstance("RSA");
+                Cipher cipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
                 cipher.init(Cipher.DECRYPT_MODE, privateKey);
-                String data = new String(cipher.doFinal(block));
+                String data = new String(cipher.doFinal(block), StandardCharsets.UTF_8);
 
                 String[] parts = data.split("\n");
-                if (parts.length >= 5 && parts[0].equals("VOTE")) {
-                    String username = parts[2];
+                if (parts.length >= 5 && "VOTE".equals(parts[0].trim())) {
+                    String username = parts[2].trim();
+                    if (!username.matches("^[A-Za-z0-9_]{1,16}$")) {
+                        System.err.println("[EvoVotifier] Rejected malformed vote username.");
+                        return;
+                    }
 
                     MinecraftServer server = ServerLifecycleHooks.getCurrentServer();
                     if (server != null) {
@@ -108,8 +128,6 @@ public class EvoVotifier {
                     }
                 }
             }
-        } finally {
-            socket.close();
         }
     }
 
